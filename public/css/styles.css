@@ -1,0 +1,24 @@
+
+body {
+  background-color: #E8ECEF;
+}
+
+.listsecrets{
+
+  background-color: #E8ECEF;
+  width: auto;
+  height: 15px;
+  margin: 20px;
+}
+
+.centered {
+    padding-top: 200px;
+    text-align: center;
+}
+
+.secret-text {
+  text-align: center;
+  font-size: 2rem;
+  color: #fff;
+  background-color: #000;
+}
