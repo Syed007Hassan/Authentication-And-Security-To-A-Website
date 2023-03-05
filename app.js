@@ -1,23 +1,21 @@
 //jshint esversion:6
-require("dotenv").config();
 const bodyParser = require("body-parser");
 const express = require("express");
-const mongoose = require("mongoose");
 const ejs = require("ejs");
+
+require("dotenv").config();
 
 const session = require("express-session");
 const passport = require("passport");
-const passportLocalMongoose = require("passport-local-mongoose");
 
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const findOrCreate = require('mongoose-findorcreate');
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
 const app = express();
 app.set("view engine", "ejs");
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
-//just below the express app and above DB
+const User = require("./db.model");
 
 app.use(
   session({
@@ -32,66 +30,44 @@ app.use(
 //middleware is required to initialize Passport. If your application uses persistent login
 //sessions, passport.session() middleware must also be used.
 app.use(passport.initialize());
+passport.use(User.createStrategy());
 
-
-//passport.session() acts as a middleware to alter the req object and change the 'user' value that 
+//passport.session() acts as a middleware to alter the req object and change the 'user' value that
 //is currently the session id (from the client cookie) into the true deserialized user object.
 app.use(passport.session());
 
-//connect to MongoDB by specifying port to access MongoDB server
-main().catch((err) => console.log(err));
-
-//creating a wikiDB after / localhost
-async function main() {
-  await mongoose.connect("mongodb://localhost:27017/userDB");
-  console.log("DB Server is up and running");
-}
-
-const userSchema = new mongoose.Schema({
-  email: String,
-  name: String,
-  username: String,
-  password: String,
-  googleId: String,
-  secret: String
-});
-
-
-userSchema.plugin(passportLocalMongoose);
-userSchema.plugin(findOrCreate);
-
-const User = new mongoose.model("User", userSchema);
-
-passport.use(User.createStrategy());
-
-passport.serializeUser(function(user, done){
+passport.serializeUser(function (user, done) {
   done(null, user.id);
 });
 
-passport.deserializeUser(function(id, done){
-
-  User.findById(id, function(err, user){
+passport.deserializeUser(function (id, done) {
+  User.findById(id, function (err, user) {
     done(err, user);
   });
 });
 
-
-passport.use(new GoogleStrategy({
-  clientID: process.env.CLIENT_ID,
-  clientSecret: process.env.CLIENT_SECRET,
-  callbackURL: "http://localhost:3000/auth/google/secrets",
-  userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
-},
-function(accessToken, refreshToken, profile, cb) {
-  console.log(profile);
-  User.findOrCreate({
-    name: profile.displayName,
-    username: profile.id
-  }, function(err, user) {
-    return cb(err, user);
-  });
-}
-));
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.CLIENT_ID,
+      clientSecret: process.env.CLIENT_SECRET,
+      callbackURL: "/auth/google/callback",
+      userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+    },
+    function (accessToken, refreshToken, profile, cb) {
+      console.log(profile);
+      User.findOrCreate(
+        {
+          name: profile.displayName,
+          username: profile.id,
+        },
+        function (err, user) {
+          return cb(err, user);
+        }
+      );
+    }
+  )
+);
 
 //FOR FACEBOOK authentication
 
@@ -112,20 +88,22 @@ function(accessToken, refreshToken, profile, cb) {
 // }
 // ));
 
-
 app.get("/", function (req, res) {
   res.render("home");
 });
 
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile'] }));
+app.get(
+  "/auth/google",
+  passport.authenticate("google", { scope: ["profile"] })
+);
 
- app.get("/auth/google/secrets", 
- passport.authenticate("google", { failureRedirect: "/login" }),
- function(req, res) {
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  function (req, res) {
     res.redirect("/secrets");
- });
-
+  }
+);
 
 app.get("/login", function (req, res) {
   res.render("login");
@@ -137,9 +115,8 @@ app.get("/register", function (req, res) {
 
 //Level 4 - Salting and Hashing Passwords with bcrypt
 
-
-app.get("/secrets", function(req,res){
-   //if session id saved then directly direct to secrets page
+app.get("/secrets", function (req, res) {
+  //if session id saved then directly direct to secrets page
   //  if(req.isAuthenticated()){
   //   res.render("secrets");
   //  }
@@ -147,46 +124,45 @@ app.get("/secrets", function(req,res){
   //   res.redirect("/login");
   //  }
 
-  User.find({ 
-      secrets: {$ne:null}
-  }, (err, docs) => {
-     if(err){
-         console.log(`Error: ` + err)
-     } else{
-       if(docs.length === 0){
-           console.log("No secrets found")
-       } else{
-         res.render("secrets",{userWithSecrets: docs});
-       }
-     }
-  });
-
+  User.find(
+    {
+      secrets: { $ne: null },
+    },
+    (err, docs) => {
+      if (err) {
+        console.log(`Error: ` + err);
+      } else {
+        if (docs.length === 0) {
+          console.log("No secrets found");
+        } else {
+          res.render("secrets", { userWithSecrets: docs });
+        }
+      }
+    }
+  );
 });
 
-app.get("/submit",function(req,res){
-
-  if(req.isAuthenticated()){
+app.get("/submit", function (req, res) {
+  if (req.isAuthenticated()) {
     res.render("submit");
-   }
-   else{
+  } else {
     res.redirect("/login");
-   }
-
+  }
 });
 
-app.post("/submit", function(req, res){
+app.post("/submit", function (req, res) {
   const submittedSecret = req.body.secret;
 
-//Once the user is authenticated and their session gets saved, their user details are saved to req.user.
+  //Once the user is authenticated and their session gets saved, their user details are saved to req.user.
   // console.log(req.user.id);
 
-  User.findById(req.user.id, function(err, foundUser){
+  User.findById(req.user.id, function (err, foundUser) {
     if (err) {
       console.log(err);
     } else {
       if (foundUser) {
         foundUser.secret = submittedSecret;
-        foundUser.save(function(){
+        foundUser.save(function () {
           res.redirect("/secrets");
         });
       }
@@ -195,55 +171,47 @@ app.post("/submit", function(req, res){
 });
 
 //when logged out, no longer able to directly access secrets page
-app.get("/logout", function(req, res, next) {
-  req.logout(function(err) {
-    if (err) { return next(err); }
+app.get("/logout", function (req, res, next) {
+  req.logout(function (err) {
+    if (err) {
+      return next(err);
+    }
     res.redirect("/");
   });
 });
 
 app.post("/register", function (req, res) {
- 
-   User.register({username: req.body.username}, req.body.password, function(err,user){
-
-      if(err){
+  User.register(
+    { username: req.body.username },
+    req.body.password,
+    function (err, user) {
+      if (err) {
         console.log(err);
         res.redirect("/register");
-      }
-      else{
-
-        passport.authenticate("local")(req,res, function(){
-           res.redirect("/secrets");
+      } else {
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secrets");
         });
       }
-   });
-
+    }
+  );
 });
 
 app.post("/login", function (req, res) {
-
-    const user = new User({
+  const user = new User({
     username: req.body.username,
-    password: req.body.password
-    });
-   
-    req.login(user, function(err){
-     
-      if(err){
-        console.log(err);
-      }
-      else{
-        passport.authenticate("local")(req,res,function(){
-            res.redirect("/secrets");
-        });
-      }
-    });
+    password: req.body.password,
+  });
 
-
+  req.login(user, function (err) {
+    if (err) {
+      console.log(err);
+    } else {
+      passport.authenticate("local")(req, res, function () {
+        res.redirect("/secrets");
+      });
+    }
+  });
 });
 
-app.listen(3000, function (req, res) {
-  console.log("EXPRESS Server has been started and running");
-});
-
-
+module.exports = app;
